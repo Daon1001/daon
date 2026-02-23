@@ -24,9 +24,9 @@ model = genai.GenerativeModel(target_model_name)
 
 # 3. 화면 UI 구성
 st.title("🏢 기업부설연구소 연구과제 추출기")
-st.info(f"💡 현재 엔진: **{target_model_name}** | 최적의 연구과제가 나올 때까지 반복 검색이 가능합니다.")
+st.info(f"💡 현재 엔진: **{target_model_name}** | '새로운 연구과제' 버튼을 누르면 목록이 교체됩니다.")
 
-# 세션 상태 초기화 (연구과제 누적용)
+# 세션 상태 초기화 (연구과제 저장용)
 if 'research_topics' not in st.session_state:
     st.session_state.research_topics = ""
 
@@ -40,10 +40,11 @@ with col2:
     business_item = st.text_input("종목")
 
 # 4. 분석 함수 정의
-def generate_rnd_topics(is_more=False):
-    with st.spinner("AI가 새로운 연구과제를 탐색 중입니다..."):
+def generate_rnd_topics(refresh=False):
+    with st.spinner("AI가 최적의 연구과제를 도출 중입니다..."):
         try:
-            variation = "기존과 다른 새로운 기술적 관점에서" if is_more else ""
+            # refresh가 True일 경우 '기존과 다른' 관점을 더 강조
+            variation = "이전과 중복되지 않는 새로운 기술적 관점에서" if refresh else ""
             
             prompt = f"""
             중소기업 연구소 설립 전문가로서 다음 기업의 KOITA 인정용 연구과제 3가지를 {variation} 제안해 주세요.
@@ -65,10 +66,8 @@ def generate_rnd_topics(is_more=False):
             else:
                 response = model.generate_content(f"{prompt}\n업태:{business_type}, 종목:{business_item}")
             
-            if is_more:
-                st.session_state.research_topics += "\n\n" + "---" * 10 + "\n\n" + response.text
-            else:
-                st.session_state.research_topics = response.text
+            # 기존 내용을 덮어쓰기 (누적되지 않음)
+            st.session_state.research_topics = response.text
                 
         except Exception as e:
             st.error(f"오류: {e}")
@@ -77,12 +76,13 @@ def generate_rnd_topics(is_more=False):
 btn_col1, btn_col2 = st.columns(2)
 with btn_col1:
     if st.button("🚀 연구과제 분석하기", use_container_width=True):
-        generate_rnd_topics(is_more=False)
+        generate_rnd_topics(refresh=False)
 
 with btn_col2:
+    # 이미 결과가 있을 때만 '새로고침' 버튼 노출
     if st.session_state.research_topics:
-        if st.button("➕ 다른 연구과제 더 보기", use_container_width=True):
-            generate_rnd_topics(is_more=True)
+        if st.button("🔄 새로운 연구과제 보기", use_container_width=True):
+            generate_rnd_topics(refresh=True)
 
 # 5. 결과 출력
 if st.session_state.research_topics:
