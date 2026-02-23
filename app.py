@@ -1,12 +1,14 @@
 import streamlit as st
 import google.generativeai as genai
 
-# 1. API 키 설정 (구글 AI 스튜디오에서 무료 발급 가능)
+# 1. 스트림릿 비밀금고에서 API 키 불러오기
 API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro')
 
-# 2. 웹 화면 UI 구성
+# 2. 가장 안정적인 범용 모델로 설정 변경 (이 부분이 해결책입니다!)
+model = genai.GenerativeModel('gemini-pro')
+
+# 3. 웹 화면 UI 구성
 st.set_page_config(page_title="R&D 주제 자동 추출기", page_icon="🏢")
 st.title("🏢 기업부설연구소 R&D 주제 추출기")
 st.markdown("---")
@@ -19,7 +21,7 @@ with col1:
 with col2:
     business_item = st.text_input("종목 (예: 금속가공, 소프트웨어 개발)")
 
-# 3. 실행 로직 (프롬프트 엔지니어링)
+# 4. 실행 로직
 if st.button("🚀 맞춤형 R&D 주제 도출하기"):
     if business_item:
         with st.spinner("AI가 최적의 R&D 주제를 분석하고 있습니다... (약 10초 소요)"):
@@ -37,13 +39,12 @@ if st.button("🚀 맞춤형 R&D 주제 도출하기"):
             * **종목 연관성:** (해당 종목과 어떻게 연결되는지)
             """
             
-            # AI에게 답변 요청
-            response = model.generate_content(prompt)
-            
-            # 결과 출력
-            st.success("분석이 완료되었습니다!")
-            st.markdown(response.text)
+            # AI에게 답변 요청 및 에러 방지 처리
+            try:
+                response = model.generate_content(prompt)
+                st.success("분석이 완료되었습니다!")
+                st.markdown(response.text)
+            except Exception as e:
+                st.error(f"오류가 발생했습니다: {e}")
     else:
         st.warning("⚠️ 종목을 반드시 입력해 주세요.")
-
-
