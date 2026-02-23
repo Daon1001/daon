@@ -6,7 +6,7 @@ API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
 
 # 2. 가장 안정적인 범용 모델로 설정 변경 (이 부분이 해결책입니다!)
-model = genai.GenerativeModel('gemini-pro')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 3. 웹 화면 UI 구성
 st.set_page_config(page_title="R&D 주제 자동 추출기", page_icon="🏢")
@@ -48,3 +48,4 @@ if st.button("🚀 맞춤형 R&D 주제 도출하기"):
                 st.error(f"오류가 발생했습니다: {e}")
     else:
         st.warning("⚠️ 종목을 반드시 입력해 주세요.")
+
