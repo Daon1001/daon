@@ -2,9 +2,9 @@ import streamlit as st
 import google.generativeai as genai
 
 # 1. API 키 설정 (구글 AI 스튜디오에서 무료 발급 가능)
-API_KEY = "AIzaSyCCSXzLDeONkUhfjZVSbowniRREmK2NjSE"
+API_KEY = st.secrets["GEMINI_API_KEY"]
 genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel('gemini-1.5-pro')
+model = genai.GenerativeModel('gemini-1.5-pro-latest')
 
 # 2. 웹 화면 UI 구성
 st.set_page_config(page_title="R&D 주제 자동 추출기", page_icon="🏢")
@@ -45,3 +45,4 @@ if st.button("🚀 맞춤형 R&D 주제 도출하기"):
             st.markdown(response.text)
     else:
         st.warning("⚠️ 종목을 반드시 입력해 주세요.")
+
