@@ -60,6 +60,12 @@ if 'authenticated_user' not in st.session_state:
 if 'research_topics' not in st.session_state:
     st.session_state.research_topics = ""
 
+if 'extracted_topic_names' not in st.session_state:
+    st.session_state.extracted_topic_names = []
+    
+if 'selected_detail_report' not in st.session_state:
+    st.session_state.selected_detail_report = ""
+
 # --- [2. 사이드바: 로그인 및 승인 관리] ---
 with st.sidebar:
     st.title("🔐 컨설턴트 인증")
@@ -102,6 +108,8 @@ with st.sidebar:
         if st.button("로그아웃", use_container_width=True):
             st.session_state.authenticated_user = None
             st.session_state.research_topics = ""
+            st.session_state.extracted_topic_names = []
+            st.session_state.selected_detail_report = ""
             st.rerun()
 
     if st.session_state.authenticated_user:
@@ -124,44 +132,46 @@ with st.sidebar:
             st.write(f"오늘 사용량: **{u_count} / {MAX_DAILY_LIMIT}**회")
             st.progress(min(u_count / MAX_DAILY_LIMIT, 1.0))
 
-# --- [3. 메인 화면 구성 및 API 동적 체크 (대표님 작성 로직 적용)] ---
+# --- [3. 메인 화면 구성 및 API 동적 체크] ---
 if st.session_state.authenticated_user is None:
     st.title("🏢 기업부설연구소 연구과제 추출기")
     st.info("💡 사이드바에서 이메일 로그인 후 이용 가능합니다.")
     st.stop()
 
-# 1. [인증 성공 시] 동적 모델 할당 로직
-try:
-    # 대소문자 모두 대응 가능하게 안전장치 추가
-    if "gemini_api_key" in st.secrets:
-        API_KEY = st.secrets["gemini_api_key"]
-    else:
-        API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=API_KEY)
-except Exception:
-    st.error("⚠️ 비밀 금고(Secrets)에서 API 키를 찾을 수 없습니다.")
+def get_api_key():
+    try:
+        if "gemini_api_key" in st.secrets:
+            return st.secrets["gemini_api_key"]
+        else:
+            return st.secrets["GEMINI_API_KEY"]
+    except Exception:
+        return None
+
+api_key = get_api_key()
+if not api_key:
+    st.error("❌ API 키가 설정되지 않았습니다. 관리자 페이지(Secrets)를 확인해주세요.")
     st.stop()
 
-available_models = []
 try:
+    genai.configure(api_key=api_key)
+    available_models = []
     for m in genai.list_models():
         if 'generateContent' in m.supported_generation_methods:
             available_models.append(m.name.replace('models/', ''))
+            
+    target_model_name = ""
+    for preferred in ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+        if preferred in available_models:
+            target_model_name = preferred
+            break
+
+    if not target_model_name and available_models:
+        target_model_name = available_models[0]
+
+    model = genai.GenerativeModel(target_model_name)
 except Exception as e:
     st.error(f"⚠️ 구글 AI 서버 통신 오류: {e}")
     st.stop()
-
-target_model_name = ""
-for preferred in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro-vision', 'gemini-pro']:
-    if preferred in available_models:
-        target_model_name = preferred
-        break
-
-if not target_model_name and available_models:
-    target_model_name = available_models[0]
-
-# 찾아낸 모델을 연결
-model = genai.GenerativeModel(target_model_name)
 
 # --- [4. 관리자 제어판] ---
 user_idx = user_db[user_db['email'] == st.session_state.authenticated_user].index[0]
@@ -230,7 +240,6 @@ def analyze_research(refresh=False):
     with st.spinner("전문 기술 스펙트럼 분석 중..."):
         try:
             variation = "이전과 중복되지 않는 관점에서" if refresh else ""
-            
             extra_guide_text = f"\n3. 컨설턴트 특별 지시사항: {custom_guideline}" if custom_guideline else ""
             
             prompt = f"""
@@ -241,7 +250,11 @@ def analyze_research(refresh=False):
             1. IT 편향을 버리고 하드웨어/공정 혁신(자동화, 신소재, 부품국산화 등)을 포함할 것.
             2. {variation} 작성할 것.{extra_guide_text}
             
-            [양식] 분류 / 연구과제명 / 목표 및 효과 / 종목 연관성
+            [양식] 
+            * **연구과제명:** (전문 명칭, 이 항목은 정확히 이 형태로 출력하세요)
+            * **분류:** (유형)
+            * **목표 및 효과:** (상세 기술 내용)
+            * **종목 연관성:** (논리적 근거)
             """
             
             if uploaded_file:
@@ -253,6 +266,18 @@ def analyze_research(refresh=False):
                 response = model.generate_content(f"{prompt}\n업태:{biz_type}, 종목:{biz_item}")
             
             st.session_state.research_topics = response.text
+            
+            # 파싱 로직: 출력된 텍스트에서 '연구과제명'만 추출하여 리스트로 저장
+            extracted_names = []
+            for line in response.text.split('\n'):
+                if "**연구과제명:**" in line:
+                    # 마크다운 기호 제거 후 순수 텍스트만 추출
+                    clean_name = line.replace("**연구과제명:**", "").replace("*", "").strip()
+                    if clean_name:
+                        extracted_names.append(clean_name)
+                        
+            st.session_state.extracted_topic_names = extracted_names
+            st.session_state.selected_detail_report = "" # 주제가 바뀌면 상세 리포트 초기화
             
             current_db.at[u_idx, 'usage_count'] += 1
             save_db(current_db)
@@ -274,5 +299,45 @@ with b2:
 if st.session_state.research_topics:
     st.success("✅ 분석 완료")
     st.markdown(st.session_state.research_topics)
+    
+    # --- [7. 선택 과제 상세 내용 (주요업무/전문연구분야) 자동 작성] ---
+    if st.session_state.extracted_topic_names:
+        st.markdown("---")
+        st.subheader("📝 연구과제 상세 내용 작성 (KOITA 신고용)")
+        st.info("위에서 추천된 과제 중 하나를 선택하시면 신고용 '주요업무'와 '전문연구분야'를 자동 작성해 드립니다.")
+        
+        selected_topic = st.selectbox("상세 내용을 작성할 연구과제를 선택하세요:", st.session_state.extracted_topic_names)
+        
+        if st.button("✨ 선택 과제 상세 내용 생성", type="primary"):
+            with st.spinner(f"'{selected_topic}'에 대한 신고 내용을 작성 중입니다..."):
+                try:
+                    detail_prompt = f"""
+                    당신은 중소기업 연구소 설립 컨설턴트입니다. 
+                    선택된 연구과제명 [{selected_topic}]을 바탕으로 한국산업기술진흥협회(KOITA) 신고 양식에 들어갈 내용을 작성하세요.
+                    
+                    [작성 기준]
+                    1. **주요업무 (200~300자 내외):** 연구소 내에서 해당 과제를 수행하기 위한 구체적인 업무 프로세스(설계, 테스트, 분석 등) 위주로 작성.
+                    2. **전문연구분야 (100자 이상):** 해당 과제가 속한 산업적 카테고리와 적용되는 핵심 기술(예: 정밀 기구 설계, 고분자 소재 분석 등) 위주로 명확하게 작성.
+                    
+                    [출력 양식]
+                    **📌 선택 과제명:** {selected_topic}
+                    
+                    **▶ 주요업무**
+                    (여기에 작성)
+                    
+                    **▶ 전문연구분야**
+                    (여기에 작성)
+                    """
+                    
+                    detail_response = model.generate_content(detail_prompt)
+                    st.session_state.selected_detail_report = detail_response.text
+                except Exception as e:
+                    st.error(f"상세 내용 작성 중 오류 발생: {e}")
+        
+        if st.session_state.selected_detail_report:
+            st.success("✅ 상세 내용 작성 완료")
+            st.markdown(st.session_state.selected_detail_report)
+
+    st.markdown("---")
     with st.expander("📋 필수 서류 안내"):
         st.markdown("도면, 현판(두께포함), 내부사진, 조직도, 재무제표, 4대보험명부 등")
