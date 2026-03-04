@@ -208,7 +208,7 @@ if user_db.at[user_idx, 'is_admin']:
         else:
             st.info("현재 등록된 다른 직원이 없습니다.")
 
-# --- [5. 본문 영역 시작] ---
+# --- [5. 본문 영역 시작 (연구과제 분석)] ---
 st.title("🏢 기업부설연구소 연구과제 추출기")
 st.markdown("---")
 
@@ -271,7 +271,6 @@ def analyze_research(refresh=False):
             extracted_names = []
             for line in response.text.split('\n'):
                 if "**연구과제명:**" in line:
-                    # 마크다운 기호 제거 후 순수 텍스트만 추출
                     clean_name = line.replace("**연구과제명:**", "").replace("*", "").strip()
                     if clean_name:
                         extracted_names.append(clean_name)
@@ -299,45 +298,66 @@ with b2:
 if st.session_state.research_topics:
     st.success("✅ 분석 완료")
     st.markdown(st.session_state.research_topics)
-    
-    # --- [7. 선택 과제 상세 내용 (주요업무/전문연구분야) 자동 작성] ---
-    if st.session_state.extracted_topic_names:
-        st.markdown("---")
-        st.subheader("📝 연구과제 상세 내용 작성 (KOITA 신고용)")
-        st.info("위에서 추천된 과제 중 하나를 선택하시면 신고용 '주요업무'와 '전문연구분야'를 자동 작성해 드립니다.")
-        
-        selected_topic = st.selectbox("상세 내용을 작성할 연구과제를 선택하세요:", st.session_state.extracted_topic_names)
-        
-        if st.button("✨ 선택 과제 상세 내용 생성", type="primary"):
-            with st.spinner(f"'{selected_topic}'에 대한 신고 내용을 작성 중입니다..."):
-                try:
-                    detail_prompt = f"""
-                    당신은 중소기업 연구소 설립 컨설턴트입니다. 
-                    선택된 연구과제명 [{selected_topic}]을 바탕으로 한국산업기술진흥협회(KOITA) 신고 양식에 들어갈 내용을 작성하세요.
-                    
-                    [작성 기준]
-                    1. **주요업무 (200~300자 내외):** 연구소 내에서 해당 과제를 수행하기 위한 구체적인 업무 프로세스(설계, 테스트, 분석 등) 위주로 작성.
-                    2. **전문연구분야 (100자 이상):** 해당 과제가 속한 산업적 카테고리와 적용되는 핵심 기술(예: 정밀 기구 설계, 고분자 소재 분석 등) 위주로 명확하게 작성.
-                    
-                    [출력 양식]
-                    **📌 선택 과제명:** {selected_topic}
-                    
-                    **▶ 주요업무**
-                    (여기에 작성)
-                    
-                    **▶ 전문연구분야**
-                    (여기에 작성)
-                    """
-                    
-                    detail_response = model.generate_content(detail_prompt)
-                    st.session_state.selected_detail_report = detail_response.text
-                except Exception as e:
-                    st.error(f"상세 내용 작성 중 오류 발생: {e}")
-        
-        if st.session_state.selected_detail_report:
-            st.success("✅ 상세 내용 작성 완료")
-            st.markdown(st.session_state.selected_detail_report)
 
-    st.markdown("---")
-    with st.expander("📋 필수 서류 안내"):
-        st.markdown("도면, 현판(두께포함), 내부사진, 조직도, 재무제표, 4대보험명부 등")
+# --- [7. 선택 및 직접 입력 기반 과제 상세 내용 생성] ---
+st.markdown("---")
+st.subheader("📝 연구과제 상세 내용 작성 (KOITA 신고용)")
+st.info("AI 추천 과제를 선택하거나 직접 과제명을 입력하시면 신고용 '주요업무'와 '전문연구분야'를 자동 작성해 드립니다.")
+
+input_method = st.radio("연구과제 입력 방식", ["추천 목록에서 선택", "직접 입력"], horizontal=True)
+
+selected_topic = ""
+if input_method == "추천 목록에서 선택":
+    if st.session_state.extracted_topic_names:
+        selected_topic = st.selectbox("추천된 과제 중 선택하세요:", st.session_state.extracted_topic_names)
+    else:
+        st.warning("아직 추천된 과제가 없습니다. 위에서 먼저 분석을 진행하시거나 '직접 입력' 방식을 선택하세요.")
+else:
+    selected_topic = st.text_input("연구과제명을 직접 입력하세요:", placeholder="예: 무인 자동화 로봇 제어 시스템 개발")
+
+if st.button("✨ 상세 내용 생성 (주요업무/전문연구분야)", type="primary"):
+    current_db = load_db()
+    u_idx = current_db[current_db['email'] == st.session_state.authenticated_user].index[0]
+    
+    # 상세 내용 생성도 일일 사용량 차감에 포함
+    if not current_db.at[u_idx, 'is_admin'] and current_db.at[u_idx, 'usage_count'] >= MAX_DAILY_LIMIT:
+        st.error("🚫 일일 사용 한도를 모두 소모하셨습니다. 내일 다시 시도해주세요.")
+    elif not selected_topic:
+        st.warning("연구과제명을 선택하거나 입력해 주세요.")
+    else:
+        with st.spinner(f"'{selected_topic}'에 대한 신고 내용을 작성 중입니다..."):
+            try:
+                detail_prompt = f"""
+                당신은 중소기업 연구소 설립 컨설턴트입니다. 
+                선택된 연구과제명 [{selected_topic}]을 바탕으로 한국산업기술진흥협회(KOITA) 신고 양식에 들어갈 내용을 작성하세요.
+                
+                [작성 기준]
+                1. **주요업무 (200~300자 내외):** 연구소 내에서 해당 과제를 수행하기 위한 구체적인 업무 프로세스(설계, 테스트, 분석 등) 위주로 작성.
+                2. **전문연구분야 (100자 이상):** 해당 과제가 속한 산업적 카테고리와 적용되는 핵심 기술(예: 정밀 기구 설계, 고분자 소재 분석 등) 위주로 명확하게 작성.
+                
+                [출력 양식]
+                **📌 연구과제명:** {selected_topic}
+                
+                **▶ 주요업무**
+                (여기에 작성)
+                
+                **▶ 전문연구분야**
+                (여기에 작성)
+                """
+                
+                detail_response = model.generate_content(detail_prompt)
+                st.session_state.selected_detail_report = detail_response.text
+                
+                current_db.at[u_idx, 'usage_count'] += 1
+                save_db(current_db)
+                st.rerun()
+            except Exception as e:
+                st.error(f"상세 내용 작성 중 오류 발생: {e}")
+
+if st.session_state.get('selected_detail_report'):
+    st.success("✅ 상세 내용 작성 완료")
+    st.markdown(st.session_state.selected_detail_report)
+
+st.markdown("---")
+with st.expander("📋 필수 서류 안내"):
+    st.markdown("도면, 현판(두께포함), 내부사진, 조직도, 재무제표, 4대보험명부 등")
