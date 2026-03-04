@@ -16,20 +16,16 @@ MAX_DAILY_LIMIT = 10  # 일일 사용량 한도
 def load_db():
     current_date_str = date.today().strftime("%Y-%m-%d")
     
-    # 1. 파일이 아예 없는 경우 (최초 실행)
     if not os.path.exists(DB_FILE):
         initial_data = pd.DataFrame([
             {"email": "incheon00@gmail.com", "approved": True, "is_admin": True, "created_at": current_date_str, "usage_count": 0, "last_date": current_date_str},
         ])
         initial_data.to_csv(DB_FILE, index=False)
         return initial_data
-        
-    # 2. 파일이 존재하는 경우 (구버전 호환성 자동 패치)
     else:
         df = pd.read_csv(DB_FILE)
         changed = False
         
-        # 필수로 있어야 하는 항목과 기본값 정의
         required_columns = {
             'approved': False,
             'is_admin': False,
@@ -38,18 +34,15 @@ def load_db():
             'last_date': current_date_str
         }
         
-        # 누락된 열(Column)이 있는지 확인하고 알아서 채워 넣기
         for col, default_val in required_columns.items():
             if col not in df.columns:
                 df[col] = default_val
                 changed = True
                 
-        # 구버전의 'last_month' 찌꺼기가 남아있다면 삭제
         if 'last_month' in df.columns:
             df = df.drop(columns=['last_month'])
             changed = True
             
-        # 변경사항이 발생했다면 CSV 파일 덮어쓰기 (자동 복구 완료)
         if changed:
             df.to_csv(DB_FILE, index=False)
             
@@ -58,10 +51,8 @@ def load_db():
 def save_db(df):
     df.to_csv(DB_FILE, index=False)
 
-# 페이지 로드 시 항상 최신(그리고 복구된) DB를 읽어옵니다.
 user_db = load_db()
 
-# [동적 키 제어 로직] API 키를 안전하게 가져오는 함수
 def get_api_key():
     try:
         if "GEMINI_API_KEY" in st.secrets:
@@ -70,7 +61,6 @@ def get_api_key():
     except:
         return None
 
-# 세션 초기화
 if 'authenticated_user' not in st.session_state:
     st.session_state.authenticated_user = None
 
@@ -85,7 +75,6 @@ with st.sidebar:
         login_email = st.text_input("이메일 입력", placeholder="example@gmail.com").strip().lower()
         col_login, col_req = st.columns(2)
         
-        # 로그인
         if col_login.button("로그인", use_container_width=True, type="primary"):
             user_row = user_db[user_db['email'] == login_email]
             if not user_row.empty:
@@ -97,7 +86,6 @@ with st.sidebar:
             else:
                 st.warning("⚠️ [승인 신청]을 먼저 하세요.")
 
-        # 승인 신청
         if col_req.button("승인 신청", use_container_width=True):
             if "@" in login_email:
                 if login_email not in user_db['email'].values:
@@ -123,12 +111,10 @@ with st.sidebar:
             st.session_state.research_topics = ""
             st.rerun()
 
-    # 일일 사용량 관리 및 자동 초기화
     if st.session_state.authenticated_user:
         st.divider()
         idx = user_db[user_db['email'] == st.session_state.authenticated_user].index[0]
         
-        # 일간 초기화 로직 (날짜가 바뀌었으면 0으로 리셋)
         current_date_str = date.today().strftime("%Y-%m-%d")
         if str(user_db.at[idx, 'last_date']) != current_date_str:
             user_db.at[idx, 'usage_count'] = 0
@@ -151,7 +137,6 @@ if st.session_state.authenticated_user is None:
     st.info("💡 사이드바에서 이메일 로그인 후 이용 가능합니다.")
     st.stop()
 
-# API 키 동적 로드 및 검증
 api_key = get_api_key()
 if not api_key:
     st.error("❌ API 키가 설정되지 않았습니다. 관리자 페이지(Secrets)를 확인해주세요.")
@@ -164,13 +149,12 @@ except Exception as e:
     st.error(f"⚠️ AI 엔진 연결 중 오류가 발생했습니다: {e}")
     st.stop()
 
-# --- [4. 관리자 제어판 (모든 사용자 상시 관리)] ---
+# --- [4. 관리자 제어판] ---
 user_idx = user_db[user_db['email'] == st.session_state.authenticated_user].index[0]
 if user_db.at[user_idx, 'is_admin']:
     with st.expander("👑 [관리자] 사용자 승인 및 DB 관리", expanded=False):
         st.dataframe(user_db, use_container_width=True)
         
-        # 본인(관리자)을 제외한 모든 사용자 목록
         other_users = user_db[user_db['email'] != st.session_state.authenticated_user]['email'].tolist()
         
         if other_users:
@@ -198,7 +182,7 @@ if user_db.at[user_idx, 'is_admin']:
                 st.error(f"{target}님 DB 삭제 완료!")
                 st.rerun()
         else:
-            st.info("현재 등록된 다른 직원이 없습니다. 동료가 승인 신청을 하면 여기에 표시됩니다.")
+            st.info("현재 등록된 다른 직원이 없습니다.")
 
 # --- [5. 본문 영역 시작] ---
 st.title("🏢 기업부설연구소 연구과제 추출기")
@@ -211,6 +195,14 @@ with col1:
     biz_type = st.text_input("업태", value="제조업")
 with col2:
     biz_item = st.text_input("종목", placeholder="예: PVP 창호 프레임 제조")
+
+# 💡 새롭게 추가된 UI: 사용자 정의 가이드라인 입력칸
+st.markdown("---")
+custom_guideline = st.text_area(
+    "🎯 AI 추가 가이드라인 지시 (선택사항)", 
+    placeholder="예시: 반드시 '친환경' 또는 '탄소중립' 키워드를 포함해서 작성해줘.\n예시: 전문 용어보다는 비전문가도 이해하기 쉬운 쉬운 말로 풀어써줘.",
+    height=80
+)
 
 # --- [6. 분석 실행 함수] ---
 def analyze_research(refresh=False):
@@ -225,14 +217,23 @@ def analyze_research(refresh=False):
     with st.spinner("전문 기술 스펙트럼 분석 중..."):
         try:
             variation = "이전과 중복되지 않는 관점에서" if refresh else ""
+            
+            # 입력받은 커스텀 가이드라인을 프롬프트에 동적으로 결합
+            extra_guide_text = f"\n3. 컨설턴트 특별 지시사항: {custom_guideline}" if custom_guideline else ""
+            
             prompt = f"""
             당신은 중소기업 기술 컨설팅 전문가입니다. 
             업태와 종목을 분석하여 KOITA 인정용 '연구과제' 3가지를 제안하세요.
+            
             [가이드라인]
             1. IT 편향을 버리고 하드웨어/공정 혁신(자동화, 신소재, 부품국산화 등)을 포함할 것.
-            2. {variation} 작성할 것.
+            2. {variation} 작성할 것.{extra_guide_text}
+            
             [양식] 분류 / 연구과제명 / 목표 및 효과 / 종목 연관성
             """
+            
+            # 📝 참고: 만약 '모든' 분석에 고정으로 적용하고 싶은 규칙이 있다면
+            # 위 [가이드라인] 영역의 1번, 2번 밑에 그냥 글로 적어두시면 됩니다.
             
             if uploaded_file:
                 if uploaded_file.type == "application/pdf":
@@ -244,7 +245,6 @@ def analyze_research(refresh=False):
             
             st.session_state.research_topics = response.text
             
-            # 사용량 증가 및 CSV 저장
             current_db.at[u_idx, 'usage_count'] += 1
             save_db(current_db)
             st.rerun()
