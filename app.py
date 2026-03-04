@@ -53,14 +53,7 @@ def save_db(df):
 
 user_db = load_db()
 
-def get_api_key():
-    try:
-        if "GEMINI_API_KEY" in st.secrets:
-            return st.secrets["GEMINI_API_KEY"]
-        return None
-    except:
-        return None
-
+# 세션 초기화
 if 'authenticated_user' not in st.session_state:
     st.session_state.authenticated_user = None
 
@@ -131,47 +124,49 @@ with st.sidebar:
             st.write(f"오늘 사용량: **{u_count} / {MAX_DAILY_LIMIT}**회")
             st.progress(min(u_count / MAX_DAILY_LIMIT, 1.0))
 
-# --- [3. 메인 화면 구성 및 API 동적 체크 (에러 해결 핵심)] ---
+# --- [3. 메인 화면 구성 및 API 동적 체크 (대표님 작성 로직 적용)] ---
 if st.session_state.authenticated_user is None:
     st.title("🏢 기업부설연구소 연구과제 추출기")
     st.info("💡 사이드바에서 이메일 로그인 후 이용 가능합니다.")
     st.stop()
 
-api_key = get_api_key()
-if not api_key:
-    st.error("❌ API 키가 설정되지 않았습니다. 관리자 페이지(Secrets)를 확인해주세요.")
+# 1. [인증 성공 시] 동적 모델 할당 로직
+try:
+    # 대소문자 모두 대응 가능하게 안전장치 추가
+    if "gemini_api_key" in st.secrets:
+        API_KEY = st.secrets["gemini_api_key"]
+    else:
+        API_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=API_KEY)
+except Exception:
+    st.error("⚠️ 비밀 금고(Secrets)에서 API 키를 찾을 수 없습니다.")
     st.stop()
 
+available_models = []
 try:
-    genai.configure(api_key=api_key)
-    
-    # 💡 [핵심] 사용 가능한 모델 목록을 동적으로 불러와 가장 좋은 모델을 선택합니다.
-    available_models = []
     for m in genai.list_models():
         if 'generateContent' in m.supported_generation_methods:
             available_models.append(m.name.replace('models/', ''))
-            
-    target_model_name = ""
-    # 구글이 이름을 바꾸더라도 유연하게 대처하도록 우선순위 검색
-    for preferred in ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
-        if preferred in available_models:
-            target_model_name = preferred
-            break
-            
-    # 지정한 모델이 하나도 없으면 사용 가능한 첫 번째 모델 강제 할당
-    if not target_model_name and available_models:
-        target_model_name = available_models[0]
-        
-    model = genai.GenerativeModel(target_model_name)
-    
 except Exception as e:
-    st.error(f"⚠️ AI 엔진 연결 중 오류가 발생했습니다: {e}")
+    st.error(f"⚠️ 구글 AI 서버 통신 오류: {e}")
     st.stop()
+
+target_model_name = ""
+for preferred in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro-vision', 'gemini-pro']:
+    if preferred in available_models:
+        target_model_name = preferred
+        break
+
+if not target_model_name and available_models:
+    target_model_name = available_models[0]
+
+# 찾아낸 모델을 연결
+model = genai.GenerativeModel(target_model_name)
 
 # --- [4. 관리자 제어판] ---
 user_idx = user_db[user_db['email'] == st.session_state.authenticated_user].index[0]
 if user_db.at[user_idx, 'is_admin']:
-    with st.expander(f"👑 [관리자] 사용자 승인 및 DB 관리 (현재 엔진: {target_model_name})", expanded=False):
+    with st.expander(f"👑 [관리자] 사용자 승인 및 DB 관리 (연결된 엔진: {target_model_name})", expanded=False):
         st.dataframe(user_db, use_container_width=True)
         
         other_users = user_db[user_db['email'] != st.session_state.authenticated_user]['email'].tolist()
