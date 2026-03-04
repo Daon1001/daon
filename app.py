@@ -267,7 +267,6 @@ def analyze_research(refresh=False):
             
             st.session_state.research_topics = response.text
             
-            # 파싱 로직: 출력된 텍스트에서 '연구과제명'만 추출하여 리스트로 저장
             extracted_names = []
             for line in response.text.split('\n'):
                 if "**연구과제명:**" in line:
@@ -276,7 +275,7 @@ def analyze_research(refresh=False):
                         extracted_names.append(clean_name)
                         
             st.session_state.extracted_topic_names = extracted_names
-            st.session_state.selected_detail_report = "" # 주제가 바뀌면 상세 리포트 초기화
+            st.session_state.selected_detail_report = "" 
             
             current_db.at[u_idx, 'usage_count'] += 1
             save_db(current_db)
@@ -299,10 +298,10 @@ if st.session_state.research_topics:
     st.success("✅ 분석 완료")
     st.markdown(st.session_state.research_topics)
 
-# --- [7. 선택 및 직접 입력 기반 과제 상세 내용 생성] ---
+# --- [7. 선택 및 직접 입력 기반 과제 상세 내용 (연구내용 포함) 자동 작성] ---
 st.markdown("---")
 st.subheader("📝 연구과제 상세 내용 작성 (KOITA 신고용)")
-st.info("AI 추천 과제를 선택하거나 직접 과제명을 입력하시면 신고용 '주요업무'와 '전문연구분야'를 자동 작성해 드립니다.")
+st.info("AI 추천 과제를 선택하거나 직접 과제명을 입력하시면 신고용 '주요업무', '연구내용', '전문연구분야'를 자동 작성해 드립니다.")
 
 input_method = st.radio("연구과제 입력 방식", ["추천 목록에서 선택", "직접 입력"], horizontal=True)
 
@@ -315,11 +314,10 @@ if input_method == "추천 목록에서 선택":
 else:
     selected_topic = st.text_input("연구과제명을 직접 입력하세요:", placeholder="예: 무인 자동화 로봇 제어 시스템 개발")
 
-if st.button("✨ 상세 내용 생성 (주요업무/전문연구분야)", type="primary"):
+if st.button("✨ 상세 내용 생성 (주요업무/연구내용/전문연구분야)", type="primary"):
     current_db = load_db()
     u_idx = current_db[current_db['email'] == st.session_state.authenticated_user].index[0]
     
-    # 상세 내용 생성도 일일 사용량 차감에 포함
     if not current_db.at[u_idx, 'is_admin'] and current_db.at[u_idx, 'usage_count'] >= MAX_DAILY_LIMIT:
         st.error("🚫 일일 사용 한도를 모두 소모하셨습니다. 내일 다시 시도해주세요.")
     elif not selected_topic:
@@ -333,12 +331,16 @@ if st.button("✨ 상세 내용 생성 (주요업무/전문연구분야)", type=
                 
                 [작성 기준]
                 1. **주요업무 (200~300자 내외):** 연구소 내에서 해당 과제를 수행하기 위한 구체적인 업무 프로세스(설계, 테스트, 분석 등) 위주로 작성.
-                2. **전문연구분야 (100자 이상):** 해당 과제가 속한 산업적 카테고리와 적용되는 핵심 기술(예: 정밀 기구 설계, 고분자 소재 분석 등) 위주로 명확하게 작성.
+                2. **연구내용 (300~500자 내외):** 해당 과제를 통해 구체적으로 어떤 기술을 연구하고 개발할 것인지 기술적 접근 방식, 방법론, 핵심 개발 요소를 전문적으로 상세히 작성.
+                3. **전문연구분야 (100자 이상):** 해당 과제가 속한 산업적 카테고리와 적용되는 핵심 기술(예: 정밀 기구 설계, 고분자 소재 분석 등) 위주로 명확하게 작성.
                 
                 [출력 양식]
                 **📌 연구과제명:** {selected_topic}
                 
                 **▶ 주요업무**
+                (여기에 작성)
+                
+                **▶ 연구내용**
                 (여기에 작성)
                 
                 **▶ 전문연구분야**
