@@ -131,7 +131,7 @@ with st.sidebar:
             st.write(f"오늘 사용량: **{u_count} / {MAX_DAILY_LIMIT}**회")
             st.progress(min(u_count / MAX_DAILY_LIMIT, 1.0))
 
-# --- [3. 메인 화면 구성 및 API 동적 체크] ---
+# --- [3. 메인 화면 구성 및 API 동적 체크 (에러 해결 핵심)] ---
 if st.session_state.authenticated_user is None:
     st.title("🏢 기업부설연구소 연구과제 추출기")
     st.info("💡 사이드바에서 이메일 로그인 후 이용 가능합니다.")
@@ -144,7 +144,26 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # 💡 [핵심] 사용 가능한 모델 목록을 동적으로 불러와 가장 좋은 모델을 선택합니다.
+    available_models = []
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            available_models.append(m.name.replace('models/', ''))
+            
+    target_model_name = ""
+    # 구글이 이름을 바꾸더라도 유연하게 대처하도록 우선순위 검색
+    for preferred in ['gemini-1.5-flash-latest', 'gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']:
+        if preferred in available_models:
+            target_model_name = preferred
+            break
+            
+    # 지정한 모델이 하나도 없으면 사용 가능한 첫 번째 모델 강제 할당
+    if not target_model_name and available_models:
+        target_model_name = available_models[0]
+        
+    model = genai.GenerativeModel(target_model_name)
+    
 except Exception as e:
     st.error(f"⚠️ AI 엔진 연결 중 오류가 발생했습니다: {e}")
     st.stop()
@@ -152,7 +171,7 @@ except Exception as e:
 # --- [4. 관리자 제어판] ---
 user_idx = user_db[user_db['email'] == st.session_state.authenticated_user].index[0]
 if user_db.at[user_idx, 'is_admin']:
-    with st.expander("👑 [관리자] 사용자 승인 및 DB 관리", expanded=False):
+    with st.expander(f"👑 [관리자] 사용자 승인 및 DB 관리 (현재 엔진: {target_model_name})", expanded=False):
         st.dataframe(user_db, use_container_width=True)
         
         other_users = user_db[user_db['email'] != st.session_state.authenticated_user]['email'].tolist()
@@ -196,7 +215,6 @@ with col1:
 with col2:
     biz_item = st.text_input("종목", placeholder="예: PVP 창호 프레임 제조")
 
-# 💡 새롭게 추가된 UI: 사용자 정의 가이드라인 입력칸
 st.markdown("---")
 custom_guideline = st.text_area(
     "🎯 AI 추가 가이드라인 지시 (선택사항)", 
@@ -218,7 +236,6 @@ def analyze_research(refresh=False):
         try:
             variation = "이전과 중복되지 않는 관점에서" if refresh else ""
             
-            # 입력받은 커스텀 가이드라인을 프롬프트에 동적으로 결합
             extra_guide_text = f"\n3. 컨설턴트 특별 지시사항: {custom_guideline}" if custom_guideline else ""
             
             prompt = f"""
@@ -231,9 +248,6 @@ def analyze_research(refresh=False):
             
             [양식] 분류 / 연구과제명 / 목표 및 효과 / 종목 연관성
             """
-            
-            # 📝 참고: 만약 '모든' 분석에 고정으로 적용하고 싶은 규칙이 있다면
-            # 위 [가이드라인] 영역의 1번, 2번 밑에 그냥 글로 적어두시면 됩니다.
             
             if uploaded_file:
                 if uploaded_file.type == "application/pdf":
