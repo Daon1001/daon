@@ -5,51 +5,100 @@ import pandas as pd
 from datetime import datetime, date
 import os
 import io
+import requests
 
 # --- [1. 페이지 설정 및 시스템 초기화] ---
 st.set_page_config(page_title="기업부설연구소 연구과제 추출기", layout="wide", page_icon="🏢")
 
-# CSV 데이터베이스 설정
-DB_FILE = "users.csv"
+# 데이터베이스 설정 (GitHub Gist 사용)
+GIST_FILENAME = "research_users.csv"
 MAX_DAILY_LIMIT = 10  # 일일 사용량 한도
+
+def _get_gist_config():
+    """Gist ID와 Token을 secrets에서 가져오기"""
+    try:
+        if "gist" in st.secrets:
+            return st.secrets["gist"]["id"], st.secrets["gist"]["token"]
+        return None, None
+    except Exception:
+        return None, None
 
 def load_db():
     current_date_str = date.today().strftime("%Y-%m-%d")
+    gist_id, token = _get_gist_config()
+    df = None
     
-    if not os.path.exists(DB_FILE):
-        initial_data = pd.DataFrame([
-            {"email": "incheon00@gmail.com", "approved": True, "is_admin": True, "created_at": current_date_str, "usage_count": 0, "last_date": current_date_str},
-        ])
-        initial_data.to_csv(DB_FILE, index=False)
-        return initial_data
-    else:
-        df = pd.read_csv(DB_FILE)
-        changed = False
-        
-        required_columns = {
-            'approved': False,
-            'is_admin': False,
-            'created_at': current_date_str,
-            'usage_count': 0,
-            'last_date': current_date_str
-        }
-        
-        for col, default_val in required_columns.items():
-            if col not in df.columns:
-                df[col] = default_val
-                changed = True
-                
-        if 'last_month' in df.columns:
-            df = df.drop(columns=['last_month'])
+    # 1. Gist에서 데이터 로드 시도
+    if gist_id and token:
+        try:
+            headers = {"Authorization": f"token {token}"}
+            resp = requests.get(f"https://api.github.com/gists/{gist_id}", headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if GIST_FILENAME in data.get("files", {}):
+                    content = data["files"][GIST_FILENAME]["content"]
+                    df = pd.read_csv(io.StringIO(content))
+        except Exception as e:
+            st.warning(f"⚠️ Gist 연동 실패, 로컬 모드로 전환합니다: {e}")
+            
+    # 2. Gist 로드 실패 시 로컬 파일 로드 (또는 신규 생성)
+    if df is None:
+        if os.path.exists("users.csv"):
+            df = pd.read_csv("users.csv")
+        else:
+            df = pd.DataFrame([
+                {"email": "incheon00@gmail.com", "approved": True, "is_admin": True, "created_at": current_date_str, "usage_count": 0, "last_date": current_date_str},
+            ])
+            
+    # 3. 필수 컬럼 검사 및 업데이트
+    changed = False
+    required_columns = {
+        'approved': False,
+        'is_admin': False,
+        'created_at': current_date_str,
+        'usage_count': 0,
+        'last_date': current_date_str
+    }
+    
+    for col, default_val in required_columns.items():
+        if col not in df.columns:
+            df[col] = default_val
             changed = True
             
-        if changed:
-            df.to_csv(DB_FILE, index=False)
-            
-        return df
+    if 'last_month' in df.columns:
+        df = df.drop(columns=['last_month'])
+        changed = True
+        
+    if changed:
+        save_db(df)
+        
+    return df
 
 def save_db(df):
-    df.to_csv(DB_FILE, index=False)
+    """Gist에 데이터 영구 저장 (로컬 백업 포함)"""
+    gist_id, token = _get_gist_config()
+    csv_str = df.to_csv(index=False)
+    
+    # Gist에 저장
+    if gist_id and token:
+        try:
+            headers = {
+                "Authorization": f"token {token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "files": {
+                    GIST_FILENAME: {
+                        "content": csv_str
+                    }
+                }
+            }
+            requests.patch(f"https://api.github.com/gists/{gist_id}", headers=headers, json=payload, timeout=10)
+        except Exception:
+            pass
+            
+    # 로컬 파일에도 백업 저장
+    df.to_csv("users.csv", index=False)
 
 user_db = load_db()
 
