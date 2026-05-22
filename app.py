@@ -227,7 +227,8 @@ def claude_generate(prompt, model_id, max_tokens=8192, image_data=None, pdf_data
         if user_email:
             add_usage_log(user_email, model_id, response.usage.input_tokens, response.usage.output_tokens, action_type)
         return {"ok": True, "text": response.content[0].text,
-                "input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens}
+                "input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens,
+                "stop_reason": response.stop_reason}
     except anthropic.RateLimitError as e:
         return {"ok": False, "error": f"Rate Limit 초과: {str(e)[:200]}"}
     except anthropic.APIStatusError as e:
@@ -726,7 +727,7 @@ V로 시작하는 5문장 요약 (시장문제, 해결방법, 연구목표, 기�
 ### [6. 추진체계 및 일정]
 4단계 일정 (1~6, 7~12, 13~18, 19~24개월), 전담 인력, 보유 인프라
 """
-                result = claude_generate(prompt, selected_model, max_tokens=8192,
+                result = claude_generate(prompt, selected_model, max_tokens=24000,
                                          user_email=st.session_state.authenticated_user,
                                          action_type="step2_report")
             pt.empty()
@@ -739,6 +740,9 @@ V로 시작하는 5문장 요약 (시장문제, 해결방법, 연구목표, 기�
                 st.session_state.report = result["text"]
                 st.session_state.sections = result["text"].split('### ')
                 cost = (result["input_tokens"]*MODEL_PRICES[selected_model]["input"] + result["output_tokens"]*MODEL_PRICES[selected_model]["output"])/1_000_000
+                # 🆕 잘림 감지
+                if result.get("stop_reason") == "max_tokens":
+                    st.warning(f"⚠️ 리포트가 최대 길이에 도달해 일부 항목이 잘렸을 수 있습니다. 생성된 섹션: {len([s for s in st.session_state.sections if s.strip()])-1}개. 다시 생성해보세요.")
                 st.success(f"✅ 생성 완료! (입력 {result['input_tokens']}, 출력 {result['output_tokens']:,}, ${cost:.4f} / ₩{cost*USD_TO_KRW:.0f})")
                 st.session_state["user_db_cache"] = load_db()
 
